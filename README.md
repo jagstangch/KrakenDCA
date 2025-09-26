@@ -36,8 +36,8 @@ This tool is configured via environment variables. Some environment variables ar
 | --- | --- | --- | --- |
 | `KRAKEN_PUBLIC_KEY` | Your Kraken API public key | ✅ | |
 | `KRAKEN_PRIVATE_KEY` | Your Kraken API private key | ✅ | |
-| `CURRENCY` | Your fiat currency to be used, e.g. USD or EUR | ❌  | `USD` |
-| `KRAKEN_ORDER_SIZE` | The order size to be used. This value should only be edited if you know exactly what you are doing. | ❌ | `0.0001` |
+| `CURRENCY` | Your fiat currency to be used, e.g. USD or EUR or CHF | ❌  | `USD` |
+| `KRAKEN_ORDER_SIZE` | The order size to be used. This value should only be edited if you know exactly what you are doing. | ❌ | `0.00005` |
 | `LIMIT_ORDER_MODE` | If set to true, limit orders are placed. With a normal monthly volume, you only pay 0.25% fees per purchase instead of 0.4%. | ❌ | `false` |
 | `CHECK_DELAY` | How often the algorithm should be executed, in seconds. | ❌ | `60` |
 | `GOTIFY_URL` | URL to your Gotify server | ❌ |  |
