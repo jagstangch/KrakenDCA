@@ -36,7 +36,7 @@ func SendPushNotification(title string, messageText string) {
 	reqUrl := url.URL{
 		Host:   rawUrl,
 		Path:   "/message",
-		Scheme: "https",
+		Scheme: "http",
 	}
 
 	q := reqUrl.Query()
