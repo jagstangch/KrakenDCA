@@ -37,7 +37,7 @@ func loadConfiguration() {
 		logger.Fatal(err)
 	}
 
-	if C.Currency == "USD" || C.Currency == "EUR" || C.Currency == "GBP" || C.Currency == "CHF" {
+	if C.Currency == "USD" || C.Currency == "EUR" || C.Currency == "GBP" {
 		C.CryptoPrefix = "X"
 		C.FiatPrefix = "Z"
 	}
