@@ -1,5 +1,5 @@
 # Step 1: Build the binary
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install git (needed for commit hash)
 RUN apk add --no-cache git
