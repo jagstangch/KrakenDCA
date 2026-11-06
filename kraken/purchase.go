@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aopoltorzhicky/go_kraken/rest"
 	"github.com/primexz/KrakenDCA/config"
 	"github.com/primexz/KrakenDCA/notification"
 	log "github.com/sirupsen/logrus"
@@ -19,6 +20,14 @@ var (
 const (
 	// how often a failing order status query is retried before we try to cancel the order
 	maxOrderQueryErrors = 12
+
+	// how often a market order is queried for its fee before giving up
+	maxMarketOrderQueries = 6
+
+	// a post-only order can only fill as maker, kraken cancels it otherwise
+	liquidityMaker = "maker"
+	// a market order always takes liquidity from the order book
+	liquidityTaker = "taker"
 )
 
 func (k *KrakenApi) BuyBtc() {
@@ -43,7 +52,7 @@ func (k *KrakenApi) BuyBtc() {
 				limitAdjustment += 0.1
 				k.log.WithField("limitAdjustment", limitAdjustment).Warn("Increasing limit adjustment")
 			case STOP:
-				notification.SendPushNotification("Failed to buy btc", "Stopped buying btc, check your open orders on kraken")
+				notification.Notify("Failed to buy btc", "Stopped buying btc, check your open orders on kraken")
 				k.log.Error("Stopped buying btc, check your open orders on kraken")
 				return
 			}
@@ -58,11 +67,11 @@ func (k *KrakenApi) BuyBtc() {
 			}
 		}
 
-		notification.SendPushNotification("Failed to buy btc", fmt.Sprintf("Failed to buy btc after %d retries", config.C.LimitOrderRetryCount))
+		notification.Notify("Failed to buy btc", fmt.Sprintf("Failed to buy btc after %d retries", config.C.LimitOrderRetryCount))
 		k.log.Errorf("Failed to buy btc after %d retries", config.C.LimitOrderRetryCount)
 	} else {
 		if !k.placeMarketOrder() {
-			notification.SendPushNotification("Failed to buy btc", "Failed to buy btc")
+			notification.Notify("Failed to buy btc", "Failed to buy btc")
 			k.log.Error("Failed to buy btc")
 		}
 	}
@@ -90,11 +99,29 @@ func (k *KrakenApi) ValidatePostOnlyOrder() error {
 
 // placeMarketOrder places a market order on kraken
 func (k *KrakenApi) placeMarketOrder() bool {
-	if _, err := k.api.AddOrder(assetPair, "buy", "market", config.C.KrakenOrderSize, nil); err != nil {
+	response, err := k.api.AddOrder(assetPair, "buy", "market", config.C.KrakenOrderSize, nil)
+	if err != nil {
 		k.log.Error("Failed to buy btc", err.Error())
 		return false
 	}
 
+	transactionId := response.TransactionIds[0]
+
+	// the order is already placed, querying it is only needed to report the fee
+	for i := 0; i < maxMarketOrderQueries; i++ {
+		time.Sleep(2 * time.Second)
+
+		orderInfo, err := k.api.QueryOrders(true, "", transactionId)
+		if order, ok := orderInfo[transactionId]; err == nil && ok && order.Status == "closed" {
+			k.reportFilledOrder(order, liquidityTaker, false)
+			return true
+		}
+	}
+
+	k.log.WithField("txid", transactionId).Warn("Market order placed, but its fee could not be queried")
+	if config.C.NotifyOnPurchase {
+		notification.Notify("Bought btc", fmt.Sprintf("Market order %s placed for %s BTC on %s (taker fee)", transactionId, formatVolume(config.C.KrakenOrderSize), pairName("")))
+	}
 	return true
 }
 
@@ -154,13 +181,13 @@ func (k *KrakenApi) placeLimitOrder(fiatPrice float64, limitAdjustment float64) 
 
 		switch {
 		case orderStatus == "closed":
-			k.logFilledOrder(order.Cost, order.Fee, order.VolumeExecuted)
+			k.reportFilledOrder(order, liquidityMaker, false)
 			return true, NONE
 
 		case order.VolumeExecuted > 0 && (orderStatus == "canceled" || orderStatus == "expired"):
 			// the rest is below kraken's minimum order size, so it can't be bought with a new order
 			k.log.Warn("Order was only partially filled, not placing a new order")
-			k.logFilledOrder(order.Cost, order.Fee, order.VolumeExecuted)
+			k.reportFilledOrder(order, liquidityMaker, true)
 			return true, NONE
 
 		case orderStatus == "canceled" && order.Reason == "User requested":
@@ -196,16 +223,52 @@ func (k *KrakenApi) cancelUnknownOrder(transactionId string) (bool, LimitPurchas
 	return false, NONE
 }
 
-func (k *KrakenApi) logFilledOrder(cost float64, fee float64, volume float64) {
+// reportFilledOrder logs a filled order with its pair and fee type, and sends a purchase notification
+func (k *KrakenApi) reportFilledOrder(order rest.OrderInfo, liquidity string, partial bool) {
 	feePercent := 0.0
-	if cost > 0 {
-		feePercent = fee / cost * 100
+	if order.Cost > 0 {
+		feePercent = order.Fee / order.Cost * 100
 	}
+	pair := pairName(order.Description.Pair)
 
 	k.log.WithFields(log.Fields{
-		"volume":     volume,
-		"cost":       cost,
-		"fee":        fee,
+		"pair":       pair,
+		"orderType":  order.Description.OrderType,
+		"liquidity":  liquidity,
+		"volume":     order.VolumeExecuted,
+		"price":      order.AveragePrice,
+		"cost":       order.Cost,
+		"fee":        order.Fee,
 		"feePercent": fmt.Sprintf("%.2f%%", feePercent),
-	}).Info("Successfully bought limit btc")
+	}).Infof("Successfully bought btc, paid %s fee", liquidity)
+
+	if !config.C.NotifyOnPurchase {
+		return
+	}
+
+	title := "Bought btc"
+	if partial {
+		title = "Bought btc (partially filled)"
+	}
+
+	notification.Notify(title, fmt.Sprintf(
+		"Pair: %s\nOrder type: %s\nVolume: %s BTC\nPrice: %.1f %s\nCost: %.2f %s\nFee: %.4f %s (%.2f%%, %s)",
+		pair, order.Description.OrderType,
+		formatVolume(order.VolumeExecuted),
+		order.AveragePrice, config.C.Currency,
+		order.Cost, config.C.Currency,
+		order.Fee, config.C.Currency, feePercent, liquidity,
+	))
+}
+
+// pairName returns the pair reported by kraken, or the configured pair if kraken didn't report one
+func pairName(krakenPair string) string {
+	if krakenPair != "" {
+		return krakenPair
+	}
+	return strings.ToUpper(assetPair)
+}
+
+func formatVolume(volume float64) string {
+	return strconv.FormatFloat(volume, 'f', 8, 64)
 }

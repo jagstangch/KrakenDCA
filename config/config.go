@@ -15,6 +15,14 @@ type config struct {
 	LimitOrderRetryCount     int     `env:"LIMIT_ORDER_RETRY_COUNT" envDefault:"8"`
 	LimitOrderMarketFallback bool    `env:"LIMIT_ORDER_MARKET_FALLBACK" envDefault:"false"`
 	MetricPort               int     `env:"METRIC_PORT" envDefault:"3000"`
+	NotifyOnPurchase         bool    `env:"NOTIFY_ON_PURCHASE" envDefault:"true"`
+
+	SmtpHost     string   `env:"SMTP_HOST"`
+	SmtpPort     int      `env:"SMTP_PORT" envDefault:"587"`
+	SmtpUsername string   `env:"SMTP_USERNAME"`
+	SmtpPassword string   `env:"SMTP_PASSWORD"`
+	EmailFrom    string   `env:"EMAIL_FROM"`
+	EmailTo      []string `env:"EMAIL_TO" envSeparator:","`
 
 	CryptoPrefix string
 	FiatPrefix   string

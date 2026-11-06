@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -22,6 +23,10 @@ type GotifyMessage struct {
 	Title    string `json:"title"`
 	Message  string `json:"message"`
 	Priority int    `json:"priority"`
+}
+
+func gotifyConfigured() bool {
+	return os.Getenv("GOTIFY_APP_TOKEN") != "" && os.Getenv("GOTIFY_URL") != ""
 }
 
 func SendPushNotification(title string, messageText string) {
@@ -52,14 +57,16 @@ func SendPushNotification(title string, messageText string) {
 	bodyBytes, err := json.Marshal(message)
 	if err != nil {
 		logger.Error(err)
+		return
 	}
 
-	reader := bytes.NewReader(bodyBytes)
-	rsp, err := http.Post(reqUrl.String(), "application/json", reader)
-
+	client := &http.Client{Timeout: 15 * time.Second}
+	rsp, err := client.Post(reqUrl.String(), "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		logger.Error("failed to send push notification", err)
+		return
 	}
+	defer rsp.Body.Close()
 
 	if rsp.StatusCode != 200 {
 		logger.Error("failed to send push notification, status code", rsp.StatusCode)

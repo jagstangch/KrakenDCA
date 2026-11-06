@@ -6,6 +6,7 @@ import (
 	"github.com/primexz/KrakenDCA/config"
 	"github.com/primexz/KrakenDCA/kraken"
 	"github.com/primexz/KrakenDCA/metrics"
+	"github.com/primexz/KrakenDCA/notification"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -34,12 +35,18 @@ func NewBot() *Bot {
 func (b *Bot) StartBot() {
 	b.log.Info("Starting bot")
 
+	notification.LogChannels()
+
 	if config.C.LimitOrderMode {
 		if err := b.krakenApi.ValidatePostOnlyOrder(); err != nil {
 			b.log.Error("Kraken rejected the post-only test order, purchases will likely fail: ", err)
+			notification.Notify("Kraken DCA started with errors", "Kraken rejected the post-only test order, purchases will likely fail: "+err.Error())
+		} else {
+			notification.Notify("Kraken DCA started", "Post-only orders are enabled and were validated by kraken (maker fee).")
 		}
 	} else {
 		b.log.Warn("LIMIT_ORDER_MODE is disabled, market orders always pay the taker fee")
+		notification.Notify("Kraken DCA started", "Market orders are enabled (taker fee).")
 	}
 
 	for {
